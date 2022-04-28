@@ -16,6 +16,7 @@
 
 #include <ostream>
 #include <istream>
+#include <iostream> // TODO FIXME remove
 #if __has_include(<version>)
     #include <version> // for feature test macros to be reliable
 #else
@@ -33,6 +34,16 @@ namespace beast {
 
 namespace test_detail {
 namespace string_views {
+namespace /*anonymous*/ {
+template <typename, template <typename...> typename>
+struct is_instance_impl : public std::false_type {};
+
+template <template <typename...> typename U, typename... Ts>
+struct is_instance_impl<U<Ts...>, U> : public std::true_type {};
+} // namespace
+
+template <typename T, template <typename...> typename U>
+static inline constexpr bool is_instance_v = is_instance_impl<std::decay_t<T>, U>::value;
 
 template <typename CharT> struct Fixture {
     static constexpr CharT const empty[] = "";
@@ -173,16 +184,40 @@ private:
         }
     }
 
-    void check_capacity() { // TODO SEHE
+    void check_capacity() {
+        check_capacity_max_size(); // this is its own saga...
+    }
+
+    void check_capacity_max_size() {
+        static_assert(
+            std::is_same_v<decltype(std::declval<SV>().max_size()), size_t>);
+
+        // OBSERVABLE differences:
+        if constexpr (is_instance_v<SV, boost::basic_string_view>) {
+            // boost::basic_string_view erroneously returns max_size() as
+            // length()
+            LOCAL_EXPECT(0 == SV{}.max_size()); // oops
+#ifdef __cpp_lib_string_view
+        } else if constexpr (is_instance_v<SV, std::basic_string_view>) {
+            static_assert(SV{}.max_size() ==
+                          (std::numeric_limits<difference_type>::max() - 8) /
+                              (2 * sizeof(CharT)));
+#endif
+        } else {
+            // size/length see check_non_empty_instances/check_empty_instances
+            static_assert(SV{}.max_size() ==
+                          (std::numeric_limits<size_t>::max()) /
+                              (sizeof(CharT)));
+        }
     }
 
     void check_modifiers() { // TODO SEHE
     }
 
     void check_operations() { // TODO SEHE
-#if __cpp_lib_string_contains >= 202011
-#endif
 #if __cpp_lib_starts_ends_with >= 201711
+#endif
+#if __cpp_lib_string_contains >= 202011
 #endif
     }
 
