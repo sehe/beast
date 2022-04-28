@@ -60,6 +60,8 @@ template <> struct Fixture<char32_t> {
 
 template <typename SV, typename CharT> struct CheckInstance {
     static constexpr Fixture<CharT> fixture{};
+    static_assert(fixture.len > 1);
+
     using traits_type            = typename SV::traits_type;
     using iterator               = typename SV::iterator;
     using const_iterator         = typename SV::const_iterator;
@@ -81,6 +83,14 @@ template <typename SV, typename CharT> struct CheckInstance {
     static_assert(std::is_same_v<CharT const&, const_reference>);
 
     static_assert(not std::is_trivial_v<SV>);
+    static_assert(not std::is_trivially_constructible_v<SV>);
+    static_assert(not std::is_trivially_default_constructible_v<SV>);
+    static_assert(std::is_trivially_copy_constructible_v<SV>);
+    static_assert(std::is_trivially_move_constructible_v<SV>);
+    static_assert(std::is_trivially_copy_assignable_v<SV>);
+    static_assert(std::is_trivially_move_assignable_v<SV>);
+    static_assert(std::is_trivially_copyable_v<SV>);
+    static_assert(std::is_trivially_destructible_v<SV>);
     static_assert(std::is_standard_layout_v<SV>);
     static_assert(sizeof(SV) == 2*sizeof(size_t));
 
@@ -91,32 +101,102 @@ template <typename SV, typename CharT> struct CheckInstance {
     static_assert(std::is_same_v<std::reverse_iterator<const_iterator>, const_reverse_iterator>);
     static_assert(std::is_same_v<std::ptrdiff_t, difference_type>);
 
+    static_assert(std::is_same_v<std::decay_t<decltype(SV::npos)>, size_type>);
+    static_assert(SV::npos == size_type(-1));
+
     // make sure template instantiation is mentioned at failure
 #define LOCAL_EXPECT(cond) BEAST_EXPECTS(cond, __PRETTY_FUNCTION__)
 
     void run() {
-        // non-mutating
+        // member functions
+        /// constructors, iterators and assignment
         check_empty_instances();
         check_non_empty_instances();
 
         check_constructors();
 
-        // mutating
         check_copy_and_assign();
+
+        /// element access
+        check_element_access();
+
+        /// capacity
+        check_capacity();
+
+        /// modifiers
+        check_modifiers();
+
+        /// operations
+        check_operations();
+
+        // non-member
+        check_relational();
+        check_hashing();
 
         // interface usage
         check_argument_passing();
 
+        
+    };
+
+private:
+    void check_element_access() {
+        {
+            // NOTE (sehe) assuming sane implementations match non-const behaviour
+            SV const instance{fixture.four};
+
+            for (size_t i = 0; i < instance.length(); ++i)
+                LOCAL_EXPECT(instance[i] == fixture.four[i]);
+
+            for (size_t i = 0; i < instance.length(); ++i)
+                LOCAL_EXPECT(instance.at(i) == fixture.four[i]);
+
+            LOCAL_EXPECT(instance.front() == instance[0]);
+            LOCAL_EXPECT(std::addressof(instance.front()) == std::addressof(instance[0]));
+            LOCAL_EXPECT(std::addressof(instance.front()) == instance.data());
+
+            LOCAL_EXPECT(instance.back() == instance[instance.length() - 1]);
+            LOCAL_EXPECT(std::addressof(instance.back()) == std::addressof(instance[instance.length() - 1]));
+        }
+
+        { 
+            SV const instance{fixture.four, fixture.len - 1};
+
+#ifndef NDEBUG
+            // skipped because implementations may assert
+#else
+            instance[instance.length()]; // doesn't throw, also no UB due
+                                         // underlying fixture::four
+#endif
+
+            BEAST_THROWS(instance.at(instance.length()), std::out_of_range);
+        }
+    }
+
+    void check_capacity() { // TODO SEHE
+    }
+
+    void check_modifiers() { // TODO SEHE
+    }
+
+    void check_operations() { // TODO SEHE
 #if __cpp_lib_string_contains >= 202011
 #endif
 #if __cpp_lib_starts_ends_with >= 201711
 #endif
+    }
 
+    void check_relational() { // TODO SEHE
+    }
+
+    void check_streaming() { // TODO SEHE
+    }
+
+    void check_hashing() {
         std_hashing();
         boost_hashing();
-    };
+    }
 
-private:
     void check_argument_passing() {
         // Function call arguments and implicit uniform construction
         LOCAL_EXPECT(acceptSV(SV{}));
@@ -163,6 +243,18 @@ private:
             LOCAL_EXPECT(mut_copy.data() == fixture.empty);
             LOCAL_EXPECT(mut_copy.length() == 0);
             LOCAL_EXPECT(mut_copy.empty());
+            
+            mut_copy = {};
+            LOCAL_EXPECT(mut_copy == fixture.empty);
+            LOCAL_EXPECT(mut_copy.data() == nullptr);
+            LOCAL_EXPECT(mut_copy.length() == 0);
+            LOCAL_EXPECT(mut_copy.empty());
+
+            mut_copy = {fixture.four, fixture.len};
+            LOCAL_EXPECT(copy == instance);
+            LOCAL_EXPECT(copy.data() == instance.data());
+            LOCAL_EXPECT(copy.length() == instance.length());
+            LOCAL_EXPECT(not copy.empty());
         }
     }
 
@@ -175,7 +267,8 @@ private:
              };
 
         // construct from iterator pair
-#if __cpp_lib_string_view >= 201811 // TODO FIXME wrong feature test - but can't find better for C++23 feature
+#if __cpp_lib_string_view >= 201811 // TODO FIXME wrong feature test - but can't
+                                    // find better for the C++23 feature
         // this will be OBSERVABLE if in c++23 mode, no doubt
         svs.emplace_back(fixture.four, fixture.four + fixture.len);
 #endif
@@ -193,6 +286,9 @@ private:
             LOCAL_EXPECT(not sv.empty());
 
             // reverse
+            LOCAL_EXPECT(sv.crbegin() == sv.rbegin());
+            LOCAL_EXPECT(sv.crend() == sv.rend());
+
             LOCAL_EXPECT(*sv.rbegin() == fixture.four[fixture.len - 1]);
             LOCAL_EXPECT(sv.rend().base() == sv.begin());
             LOCAL_EXPECT(std::distance(sv.begin(), sv.end()) ==
@@ -213,12 +309,21 @@ private:
                 LOCAL_EXPECT(cend(sv) == fixture.four + fixture.len);
                 LOCAL_EXPECT(size(sv) == fixture.len);
                 LOCAL_EXPECT(not empty(sv));
+            }
 
+// for MSVC see https://stackoverflow.com/a/58316194/85371
+#if __cplusplus >= 201402L
+            {
                 using std::rbegin;
                 using std::rend;
-                LOCAL_EXPECT(rbegin(sv) == sv.rbegin());
-                LOCAL_EXPECT(rend(sv) == sv.rend());
+                using std::crbegin;
+                using std::crend;
+                LOCAL_EXPECT(rbegin(sv)  == sv.rbegin());
+                LOCAL_EXPECT(rend(sv)    == sv.rend());
+                LOCAL_EXPECT(crbegin(sv) == sv.rbegin());
+                LOCAL_EXPECT(crend(sv)   == sv.rend());
             }
+#endif
         }
     }
 
@@ -273,14 +378,14 @@ private: // utils
         exercise_hash(H{});
     }
     static void std_hashing(...) {
-        //BEAST_EXPECTS(false, __PRETTY_FUNCTION__);// TODO FIXME
+        //BEAST_EXPECTS(false, __PRETTY_FUNCTION__);// TODO FIXME useful feedback
     }
 
     template <typename H = boost::hash<SV>> static void boost_hashing(H* = {}) {
         exercise_hash(H{});
     }
     static void boost_hashing(...) {
-        //BEAST_EXPECTS(false, __PRETTY_FUNCTION__);// TODO FIXME
+        //BEAST_EXPECTS(false, __PRETTY_FUNCTION__);// TODO FIXME useful feedback
     }
 #undef LOCAL_EXPECT
 };
