@@ -19,14 +19,28 @@
 #include <iostream> // TODO FIXME remove
 #if __has_include(<version>)
     #include <version> // for feature test macros to be reliable
+    #ifdef __cpp_lib_string_view
+        #define BEAST_TEST_HAVE_STD_STRING_VIEW 1
+    #else
+        #define BEAST_TEST_HAVE_STD_STRING_VIEW 0
+    #endif
 #else
     #pragma message "no reliable feature test macros"
+    #ifdef _LIBCPP_VERSION
+        // TODO FIXME forcing this for libc++
+        #define BEAST_TEST_HAVE_STD_STRING_VIEW 1
+    #endif
 #endif
 
-#ifdef __cpp_lib_string_view
-#include <string_view>
+#ifndef BEAST_TEST_HAVE_STD_STRING_VIEW
+    #define BEAST_TEST_HAVE_STD_STRING_VIEW 0
+    #pragma message "no std::string_view implementation detected"
+#endif
+
+#if BEAST_TEST_HAVE_STD_STRING_VIEW
+    #include <string_view>
 #elif defined(__cpp_lib_experimental_string_view)
-#include <experimental/string_view>
+    #include <experimental/string_view>
 #endif
 
 namespace boost {
@@ -192,20 +206,28 @@ private:
         static_assert(
             std::is_same_v<decltype(std::declval<SV>().max_size()), size_t>);
 
+        // Subsequent static_assert made into LOCAL_EXPECT for easy debugging
+
         // OBSERVABLE differences:
         if constexpr (is_instance_v<SV, boost::basic_string_view>) {
             // boost::basic_string_view erroneously returns max_size() as
             // length()
             LOCAL_EXPECT(0 == SV{}.max_size()); // oops
-#ifdef __cpp_lib_string_view
+#if BEAST_TEST_HAVE_STD_STRING_VIEW
         } else if constexpr (is_instance_v<SV, std::basic_string_view>) {
-            static_assert(SV{}.max_size() ==
-                          (std::numeric_limits<difference_type>::max() - 8) /
-                              (2 * sizeof(CharT)));
+    #ifdef _LIBCPP_VERSION
+            LOCAL_EXPECT(SV{}.max_size() == size_t(-1));
+    #else // libstdc++ assumed:
+            LOCAL_EXPECT(SV{}.max_size() ==
+                         (std::numeric_limits<difference_type>::max() - 8) /
+                             (2 * sizeof(CharT)));
+    #endif
+#else
+            LOCAL_EXPECT(!"std::basic_string_view not applicable");
 #endif
         } else {
             // size/length see check_non_empty_instances/check_empty_instances
-            static_assert(SV{}.max_size() ==
+            LOCAL_EXPECT(SV{}.max_size() ==
                           (std::numeric_limits<size_t>::max()) /
                               (sizeof(CharT)));
         }
@@ -453,7 +475,7 @@ public:
     void run() override {
         using namespace test_detail::string_views;
 
-#ifdef __cpp_lib_string_view
+#if BEAST_TEST_HAVE_STD_STRING_VIEW
         CheckTemplate<std::basic_string_view>{}.run();
 #elif defined(__cpp_lib_experimental_string_view)
         CheckTemplate<std::experimental::basic_string_view>{}.run();
