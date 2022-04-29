@@ -16,7 +16,6 @@
 
 #include <ostream>
 #include <istream>
-#include <iostream> // TODO REMOVE
 #if __has_include(<version>)
     #include <version> // for feature test macros to be reliable
     #ifdef __cpp_lib_string_view
@@ -290,6 +289,26 @@ private:
         }
     }
 
+    static bool constexpr is_std_basic_string_view =
+#if BEAST_TEST_HAVE_STD_STRING_VIEW
+        is_instance_v<SV, std::basic_string_view>
+#else
+        false
+#endif
+        ;
+
+    static bool constexpr skip_starts_with_ends_with = is_std_basic_string_view
+#ifdef __cpp_lib_starts_ends_with
+        && (__cpp_lib_starts_ends_with < 201711)
+#endif
+        ;
+
+    static bool constexpr skip_contains = is_std_basic_string_view
+#ifdef __cpp_lib_starts_ends_with
+        && (__cpp_lib_string_contains < 202011)
+#endif
+        ;
+
     void check_operations() { // TODO SEHE
         // copy
         {
@@ -387,10 +406,61 @@ private:
                 BEAST_THROWS(sv.compare(5, 0, bufvw), std::out_of_range);
             }
         }
-#if __cpp_lib_starts_ends_with >= 201711
-#endif
-#if __cpp_lib_string_contains >= 202011
-#endif
+
+        // starts_with
+        if constexpr (!skip_starts_with_ends_with) {
+            SV const sv{fixture.sz1234};
+
+            CharT buf[fixture.len*4] = {};
+            SV bufvw{buf, std::size(buf)};
+
+            for (CharT* cur = buf; cur < std::end(buf); cur += fixture.len) {
+                sv.copy(cur, fixture.len);
+            }
+
+            LOCAL_EXPECT(bufvw.starts_with(sv));
+            LOCAL_EXPECT(bufvw.starts_with(sv.data())); // assume NUL-termination
+            LOCAL_EXPECT(not sv.starts_with(bufvw)); // sv shorter
+            LOCAL_EXPECT(sv.starts_with(bufvw.front())); // single char
+            LOCAL_EXPECT(not SV{}.starts_with(bufvw.front())); // SV{} empty
+
+            for (size_t i = 0; i <= std::size(buf); ++i) {
+                LOCAL_EXPECT(
+                    bufvw.substr(i).starts_with(sv) ==
+                    ((i < std::size(buf)) && (0 == (i % sv.length()))));
+            }
+            for (size_t n = 0; n < std::size(buf); ++n) {
+                LOCAL_EXPECT(bufvw.substr(0, n).starts_with(sv) ==
+                             (n >= sv.length()));
+            }
+        }
+
+        // ends_with
+        if constexpr (!skip_starts_with_ends_with) {
+            SV const sv{fixture.sz1234};
+
+            CharT buf[fixture.len*4] = {};
+            SV bufvw{buf, std::size(buf)};
+
+            for (CharT* cur = buf; cur < std::end(buf); cur += fixture.len) {
+                sv.copy(cur, fixture.len);
+            }
+
+            LOCAL_EXPECT(bufvw.ends_with(sv));
+            LOCAL_EXPECT(bufvw.ends_with(sv.data())); // assume NUL-termination
+            LOCAL_EXPECT(not sv.ends_with(bufvw));    // sv shorter
+            LOCAL_EXPECT(sv.ends_with(bufvw.back())); // single char
+            LOCAL_EXPECT(not SV{}.ends_with(bufvw.back())); // SV{} empty
+
+            for (size_t i = 0; i < std::size(buf); ++i) {
+                LOCAL_EXPECT(bufvw.substr(i).ends_with(sv) ==
+                             ((bufvw.size() - i) >= sv.length()));
+            }
+            for (size_t n = 0; n < std::size(buf); ++n) {
+                LOCAL_EXPECT(bufvw.substr(0, n).ends_with(sv) ==
+                             ((n > 0) && (0 == (n % sv.length()))));
+            }
+        }
     }
 
     void check_relational() { // TODO SEHE
