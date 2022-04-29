@@ -16,7 +16,8 @@
 
 #include <ostream>
 #include <istream>
-#include <iostream> // TODO REMOVE
+#include <sstream>
+#include <iomanip> // for std::quoted
 #if __has_include(<version>)
     #include <version> // for feature test macros to be reliable
     #ifdef __cpp_lib_string_view
@@ -60,27 +61,31 @@ template <typename T, template <typename...> typename U>
 static inline constexpr bool is_instance_v = is_instance_impl<std::decay_t<T>, U>::value;
 
 template <typename CharT> struct Fixture {
-    static constexpr CharT const empty[] = "";
-    static constexpr CharT const sz1234[] = "1234";
+    static constexpr CharT empty[] = "";
+    static constexpr CharT sz1234[] = "1234";
     static constexpr size_t len = std::size(sz1234) - 1; // not including NUL
+    static constexpr CharT dquote = '"';
 };
 
 template <> struct Fixture<wchar_t> {
-    static constexpr wchar_t const empty[] = L"";
-    static constexpr wchar_t const sz1234[] = L"1234";
+    static constexpr wchar_t empty[] = L"";
+    static constexpr wchar_t sz1234[] = L"1234";
     static constexpr size_t len = std::size(sz1234) - 1; // not including NUL
+    static constexpr wchar_t dquote = L'"';
 };
 
 template <> struct Fixture<char16_t> {
-    static constexpr char16_t const empty[] = u"";
-    static constexpr char16_t const sz1234[] = u"1234";
+    static constexpr char16_t empty[] = u"";
+    static constexpr char16_t sz1234[] = u"1234";
     static constexpr size_t len = std::size(sz1234) - 1; // not including NUL
+    static constexpr char16_t dquote = u'"';
 };
 
 template <> struct Fixture<char32_t> {
-    static constexpr char32_t const empty[] = U"";
-    static constexpr char32_t const sz1234[] = U"1234";
+    static constexpr char32_t empty[] = U"";
+    static constexpr char32_t sz1234[] = U"1234";
     static constexpr size_t len = std::size(sz1234) - 1; // not including NUL
+    static constexpr char32_t dquote = U'"';
 };
 
 template <typename SV, typename CharT> struct CheckInstance {
@@ -157,11 +162,11 @@ template <typename SV, typename CharT> struct CheckInstance {
 
         // non-member
         check_relational();
+        check_streaming();
         check_hashing();
 
         // interface usage
         check_argument_passing();
-
         
     };
 
@@ -563,7 +568,7 @@ private:
             LOCAL_EXPECT((matches(sv, {}) == Matches{4, 3, 2, 1, 0})); // !!!
 
             bufvw.remove_prefix(1);
-            LOCAL_EXPECT((matches(bufvw, sv) == Matches{11,7,3}));
+            LOCAL_EXPECT((matches(bufvw, sv) == Matches{11, 7, 3}));
         }
 
         // contains
@@ -582,12 +587,277 @@ private:
             LOCAL_EXPECT(sv.contains(SV{})); // anything contains empty strings
             LOCAL_EXPECT(SV{}.contains(SV{})); // empty strings contain empty strings
         }
+
+        // TODO find_first_of
+        // TODO find_first_not_of
+        // TODO find_last_of
+        // TODO find_last_not_of
     }
 
-    void check_relational() { // TODO SEHE
+    void check_relational() {
+        std::basic_string<CharT, traits_type> const str1234(fixture.sz1234);
+        std::basic_string<CharT, traits_type> const str123(fixture.sz1234, 3);
+        std::basic_string<CharT, traits_type> const str234(fixture.sz1234 + 1);
+        SV sv1234 = str1234;
+        SV sv123 = str123;
+        SV sv234 = str234;
+
+        CharT const* sz1234 = fixture.sz1234;
+        CharT const* sz234 = sz1234 + 1;
+        CharT sz123[4]{0};
+        sv1234.copy(sz123, 3);
+
+        { // 1234 vs 1234
+            //
+            LOCAL_EXPECT(str1234 == str1234);
+            LOCAL_EXPECT(str1234 == sz1234);
+            LOCAL_EXPECT(str1234 == sv1234);
+
+            LOCAL_EXPECT(sz1234 == str1234);
+            //LOCAL_EXPECT(sz1234 == sz1234);
+            LOCAL_EXPECT(sz1234 == sv1234);
+
+            LOCAL_EXPECT(sv1234 == str1234);
+            LOCAL_EXPECT(sv1234 == sz1234);
+            LOCAL_EXPECT(sv1234 == sv1234);
+            //
+            LOCAL_EXPECT(not (str1234 != str1234));
+            LOCAL_EXPECT(not (str1234 != sz1234));
+            LOCAL_EXPECT(not (str1234 != sv1234));
+
+            LOCAL_EXPECT(not (sz1234  != str1234));
+            //LOCAL_EXPECT(not (sz1234  != sz1234));
+            LOCAL_EXPECT(not (sz1234  != sv1234));
+
+            LOCAL_EXPECT(not (sv1234  != str1234));
+            LOCAL_EXPECT(not (sv1234  != sz1234));
+            LOCAL_EXPECT(not (sv1234  != sv1234));
+            //
+            LOCAL_EXPECT(not (str1234 < str1234));
+            LOCAL_EXPECT(not (str1234 < sz1234));
+            LOCAL_EXPECT(not (str1234 < sv1234));
+
+            LOCAL_EXPECT(not (sz1234  < str1234));
+            //LOCAL_EXPECT(not (sz1234  < sz1234));
+            LOCAL_EXPECT(not (sz1234  < sv1234));
+
+            LOCAL_EXPECT(not (sv1234  < str1234));
+            LOCAL_EXPECT(not (sv1234  < sz1234));
+            LOCAL_EXPECT(not (sv1234  < sv1234));
+            //
+            LOCAL_EXPECT(    (str1234 <= str1234));
+            LOCAL_EXPECT(    (str1234 <= sz1234));
+            LOCAL_EXPECT(    (str1234 <= sv1234));
+
+            LOCAL_EXPECT(    (sz1234  <= str1234));
+            //LOCAL_EXPECT(    (sz1234  <= sz1234));
+            LOCAL_EXPECT(    (sz1234  <= sv1234));
+
+            LOCAL_EXPECT(    (sv1234  <= str1234));
+            LOCAL_EXPECT(    (sv1234  <= sz1234));
+            LOCAL_EXPECT(    (sv1234  <= sv1234));
+            //
+            LOCAL_EXPECT(not (str1234 > str1234));
+            LOCAL_EXPECT(not (str1234 > sz1234));
+            LOCAL_EXPECT(not (str1234 > sv1234));
+
+            LOCAL_EXPECT(not (sz1234  > str1234));
+            //LOCAL_EXPECT(not (sz1234  > sz1234));
+            LOCAL_EXPECT(not (sz1234  > sv1234));
+
+            LOCAL_EXPECT(not (sv1234  > str1234));
+            LOCAL_EXPECT(not (sv1234  > sz1234));
+            LOCAL_EXPECT(not (sv1234  > sv1234));
+            //
+            LOCAL_EXPECT(    (str1234 >= str1234));
+            LOCAL_EXPECT(    (str1234 >= sz1234));
+            LOCAL_EXPECT(    (str1234 >= sv1234));
+
+            LOCAL_EXPECT(    (sz1234  >= str1234));
+            //LOCAL_EXPECT(    (sz1234  >= sz1234));
+            LOCAL_EXPECT(    (sz1234  >= sv1234));
+
+            LOCAL_EXPECT(    (sv1234  >= str1234));
+            LOCAL_EXPECT(    (sv1234  >= sz1234));
+            LOCAL_EXPECT(    (sv1234  >= sv1234));
+            //
+        }
+        { // 123 vs 1234
+            //
+            LOCAL_EXPECT(not (str123 == str1234));
+            LOCAL_EXPECT(not (str123 == sz1234));
+            LOCAL_EXPECT(not (str123 == sv1234));
+
+            LOCAL_EXPECT(not (sz123 == str1234));
+            //LOCAL_EXPECT(not (sz123 == sz1234));
+            LOCAL_EXPECT(not (sz123 == sv1234));
+
+            LOCAL_EXPECT(not (sv123 == str1234));
+            LOCAL_EXPECT(not (sv123 == sz1234));
+            LOCAL_EXPECT(not (sv123 == sv1234));
+            //
+            LOCAL_EXPECT(str123 != str1234);
+            LOCAL_EXPECT(str123 != sz1234);
+            LOCAL_EXPECT(str123 != sv1234);
+
+            LOCAL_EXPECT(sz123  != str1234);
+            //LOCAL_EXPECT(sz123  != sz1234);
+            LOCAL_EXPECT(sz123  != sv1234);
+
+            LOCAL_EXPECT(sv123  != str1234);
+            LOCAL_EXPECT(sv123  != sz1234);
+            LOCAL_EXPECT(sv123  != sv1234);
+            //
+            LOCAL_EXPECT(str123 < str1234);
+            LOCAL_EXPECT(str123 < sz1234);
+            LOCAL_EXPECT(str123 < sv1234);
+
+            LOCAL_EXPECT(sz123  < str1234);
+            //LOCAL_EXPECT(sz123  < sz1234);
+            LOCAL_EXPECT(sz123  < sv1234);
+
+            LOCAL_EXPECT(sv123  < str1234);
+            LOCAL_EXPECT(sv123  < sz1234);
+            LOCAL_EXPECT(sv123  < sv1234);
+            //
+            LOCAL_EXPECT(str123 <= str1234);
+            LOCAL_EXPECT(str123 <= sz1234);
+            LOCAL_EXPECT(str123 <= sv1234);
+
+            LOCAL_EXPECT(sz123  <= str1234);
+            //LOCAL_EXPECT(sz123  <= sz1234);
+            LOCAL_EXPECT(sz123  <= sv1234);
+
+            LOCAL_EXPECT(sv123  <= str1234);
+            LOCAL_EXPECT(sv123  <= sz1234);
+            LOCAL_EXPECT(sv123  <= sv1234);
+            //
+            LOCAL_EXPECT(not (str123 > str1234));
+            LOCAL_EXPECT(not (str123 > sz1234));
+            LOCAL_EXPECT(not (str123 > sv1234));
+
+            LOCAL_EXPECT(not (sz123  > str1234));
+            //LOCAL_EXPECT(not (sz123  > sz1234));
+            LOCAL_EXPECT(not (sz123  > sv1234));
+
+            LOCAL_EXPECT(not (sv123  > str1234));
+            LOCAL_EXPECT(not (sv123  > sz1234));
+            LOCAL_EXPECT(not (sv123  > sv1234));
+            //
+            LOCAL_EXPECT(not (str123 >= str1234));
+            LOCAL_EXPECT(not (str123 >= sz1234));
+            LOCAL_EXPECT(not (str123 >= sv1234));
+
+            LOCAL_EXPECT(not (sz123  >= str1234));
+            //LOCAL_EXPECT(not (sz123  >= sz1234));
+            LOCAL_EXPECT(not (sz123  >= sv1234));
+
+            LOCAL_EXPECT(not (sv123  >= str1234));
+            LOCAL_EXPECT(not (sv123  >= sz1234));
+            LOCAL_EXPECT(not (sv123  >= sv1234));
+            //
+        }
+        { // 234 vs 1234
+            //
+            LOCAL_EXPECT(not (str234 == str1234));
+            LOCAL_EXPECT(not (str234 == sz1234));
+            LOCAL_EXPECT(not (str234 == sv1234));
+
+            LOCAL_EXPECT(not (sz234 == str1234));
+            //LOCAL_EXPECT(not (sz234 == sz1234));
+            LOCAL_EXPECT(not (sz234 == sv1234));
+
+            LOCAL_EXPECT(not (sv234 == str1234));
+            LOCAL_EXPECT(not (sv234 == sz1234));
+            LOCAL_EXPECT(not (sv234 == sv1234));
+            //
+            LOCAL_EXPECT(str234 != str1234);
+            LOCAL_EXPECT(str234 != sz1234);
+            LOCAL_EXPECT(str234 != sv1234);
+
+            LOCAL_EXPECT(sz234  != str1234);
+            //LOCAL_EXPECT(sz234  != sz1234);
+            LOCAL_EXPECT(sz234  != sv1234);
+
+            LOCAL_EXPECT(sv234  != str1234);
+            LOCAL_EXPECT(sv234  != sz1234);
+            LOCAL_EXPECT(sv234  != sv1234);
+            //
+            LOCAL_EXPECT(not (str234 < str1234));
+            LOCAL_EXPECT(not (str234 < sz1234));
+            LOCAL_EXPECT(not (str234 < sv1234));
+
+            LOCAL_EXPECT(not (sz234  < str1234));
+            //LOCAL_EXPECT(not (sz234  < sz1234));
+            LOCAL_EXPECT(not (sz234  < sv1234));
+
+            LOCAL_EXPECT(not (sv234  < str1234));
+            LOCAL_EXPECT(not (sv234  < sz1234));
+            LOCAL_EXPECT(not (sv234  < sv1234));
+            //
+            LOCAL_EXPECT(not (str234 <= str1234));
+            LOCAL_EXPECT(not (str234 <= sz1234));
+            LOCAL_EXPECT(not (str234 <= sv1234));
+
+            LOCAL_EXPECT(not (sz234  <= str1234));
+            //LOCAL_EXPECT(    (sz234  <= sz1234));
+            LOCAL_EXPECT(not (sz234  <= sv1234));
+
+            LOCAL_EXPECT(not (sv234  <= str1234));
+            LOCAL_EXPECT(not (sv234  <= sz1234));
+            LOCAL_EXPECT(not (sv234  <= sv1234));
+            //
+            LOCAL_EXPECT(str234 > str1234);
+            LOCAL_EXPECT(str234 > sz1234);
+            LOCAL_EXPECT(str234 > sv1234);
+
+            LOCAL_EXPECT(sz234  > str1234);
+            //LOCAL_EXPECT(sz234  > sz1234);
+            LOCAL_EXPECT(sz234  > sv1234);
+
+            LOCAL_EXPECT(sv234  > str1234);
+            LOCAL_EXPECT(sv234  > sz1234);
+            LOCAL_EXPECT(sv234  > sv1234);
+            //
+            LOCAL_EXPECT(str234 >= str1234);
+            LOCAL_EXPECT(str234 >= sz1234);
+            LOCAL_EXPECT(str234 >= sv1234);
+
+            LOCAL_EXPECT(sz234  >= str1234);
+            //LOCAL_EXPECT(sz234  >= sz1234);
+            LOCAL_EXPECT(sz234  >= sv1234);
+
+            LOCAL_EXPECT(sv234  >= str1234);
+            LOCAL_EXPECT(sv234  >= sz1234);
+            LOCAL_EXPECT(sv234  >= sv1234);
+            //
+        }
+
+        // TODO mixed comparisons, e.g. boost::string_view{} ==
+        // boost::core::string_view{}, to find out which operator declaration
+        // namespace picks it up
+
+        // TODO <=> for c++20?
     }
 
-    void check_streaming() { // TODO SEHE
+    void check_streaming() {
+        SV const sv{fixture.sz1234};
+
+        {
+            std::basic_ostringstream<CharT, traits_type> oss;
+            oss << sv;
+            LOCAL_EXPECT(oss.str() == sv);
+        }
+
+        if constexpr (is_std_basic_string_view) {
+            // OBSERVABLE: only std::string_view has this feature
+            std::basic_ostringstream<CharT, traits_type> oss;
+            oss << std::quoted(sv);
+
+            auto quoted = oss.str();
+            LOCAL_EXPECT(quoted.front() == fixture.dquote);
+            LOCAL_EXPECT(quoted.back() == fixture.dquote);
+        }
     }
 
     void check_hashing() {
@@ -601,6 +871,11 @@ private:
         LOCAL_EXPECT(acceptSV({}));
         LOCAL_EXPECT(acceptSV({fixture.sz1234}));
         LOCAL_EXPECT(acceptSV({fixture.sz1234, fixture.len}));
+
+        // TODO Implicit conversions through conversion operators (like
+        // basic_string<>::operator basic_string_view<>)
+        //
+        // Boost Utility has basic_string_view<>::to_string(). OBSERVABLE
     }
 
     void check_constructors() {
