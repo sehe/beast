@@ -16,6 +16,7 @@
 
 #include <ostream>
 #include <istream>
+#include <iostream> // TODO REMOVE
 #if __has_include(<version>)
     #include <version> // for feature test macros to be reliable
     #ifdef __cpp_lib_string_view
@@ -303,11 +304,14 @@ private:
 #endif
         ;
 
-    static bool constexpr skip_contains = is_std_basic_string_view
-#ifdef __cpp_lib_starts_ends_with
-        && (__cpp_lib_string_contains < 202011)
+    static bool constexpr skip_contains =
+        // OBSERVABLE: boost::basic_string_view doesn't have `contains`
+        is_instance_v<SV, boost::basic_string_view> ||
+        (is_std_basic_string_view
+#ifdef __cpp_lib_string_contains
+         && (__cpp_lib_string_contains < 202011)
 #endif
-        ;
+        );
 
     void check_operations() { // TODO SEHE
         // copy
@@ -460,6 +464,123 @@ private:
                 LOCAL_EXPECT(bufvw.substr(0, n).ends_with(sv) ==
                              ((n > 0) && (0 == (n % sv.length()))));
             }
+        }
+
+        // find
+        {
+            SV const sv{fixture.sz1234};
+
+            CharT buf[fixture.len*4] = {};
+            SV bufvw{buf, std::size(buf)};
+
+            for (CharT* cur = buf; cur < std::end(buf); cur += fixture.len) {
+                sv.copy(cur, fixture.len);
+            }
+
+            LOCAL_EXPECT(bufvw.find(sv) == 0);
+            LOCAL_EXPECT(sv.find(bufvw) == SV::npos); // needle larger than haystack
+            LOCAL_EXPECT(bufvw.find(sv.data()) == 0); // assumes NUL termination
+            LOCAL_EXPECT(bufvw.find(sv[2]) == 2);     // single CharT
+
+            // constexpr size_type find( const CharT* s, size_type pos ) const;
+            LOCAL_EXPECT(bufvw.find(sv.data() + 1, 4) == 5);
+            // constexpr size_type find( const CharT* s, size_type pos, size_type count ) const;
+            LOCAL_EXPECT(bufvw.substr(0,6).find(sv.data(), 2, 2) == 4);
+
+            // empty haystack
+            LOCAL_EXPECT(SV{}.find(sv[2]) == SV::npos);
+            // empty needle
+            LOCAL_EXPECT(bufvw.find({fixture.empty}) == 0);
+
+            using Matches = std::vector<size_t>;
+            auto matches = [](SV haystack, SV needle) {
+                Matches res;
+                for (size_t pos = 0; pos < haystack.size() &&
+                     SV::npos != (pos = haystack.find(needle, pos));
+                     ++pos) //
+                {
+                    res.push_back(pos);
+                }
+                return res;
+            };
+
+            LOCAL_EXPECT((matches(bufvw, sv) == Matches{0, 4, 8, 12}));
+            LOCAL_EXPECT((matches(bufvw, sv.substr(1)) == Matches{1, 5, 9, 13}));
+            LOCAL_EXPECT((matches(bufvw, sv.substr(2)) == Matches{2, 6, 10, 14}));
+            LOCAL_EXPECT((matches(bufvw, sv.substr(3)) == Matches{3, 7, 11, 15}));
+            LOCAL_EXPECT((matches(sv, bufvw) == Matches{}));
+            LOCAL_EXPECT((matches(sv, {}) == Matches{0, 1, 2, 3}));
+
+            bufvw.remove_suffix(1);
+            LOCAL_EXPECT((matches(bufvw, sv) == Matches{0, 4, 8/*, now partial match: 12*/}));
+        }
+
+        // rfind
+        {
+            SV const sv{fixture.sz1234};
+
+            CharT buf[fixture.len*4] = {};
+            SV bufvw{buf, std::size(buf)};
+
+            for (CharT* cur = buf; cur < std::end(buf); cur += fixture.len) {
+                sv.copy(cur, fixture.len);
+            }
+
+            LOCAL_EXPECT(bufvw.rfind(sv) == 12);
+            LOCAL_EXPECT(bufvw.rfind(sv, 12) == 12);
+            LOCAL_EXPECT(sv.rfind(bufvw) == SV::npos); // needle larger than haystack
+            LOCAL_EXPECT(bufvw.rfind(sv.data()) == 12); // assumes NUL termination
+            LOCAL_EXPECT(bufvw.rfind(sv[2]) == 14);     // single CharT
+
+            // constexpr size_type rfind( const CharT* s, size_type pos ) const;
+            LOCAL_EXPECT(bufvw.rfind(sv.data() + 1, 12) == 9);
+            //// constexpr size_type rfind( const CharT* s, size_type pos, size_type count ) const;
+            LOCAL_EXPECT(bufvw.substr(0,6).rfind(sv.data(), 4, 2) == 4);
+
+            // empty haystack
+            LOCAL_EXPECT(SV{}.rfind(sv[2]) == SV::npos);
+            // empty needle
+            LOCAL_EXPECT(bufvw.rfind({fixture.empty}) == bufvw.size());
+
+            using Matches = std::vector<size_t>;
+            auto matches = [](SV haystack, SV needle) {
+                Matches res;
+                for (size_t pos = haystack.size();
+                     SV::npos != (pos = haystack.rfind(needle, pos)); --pos) //
+                {
+                    res.push_back(pos);
+                    if (pos == 0)
+                        break;
+                }
+                return res;
+            };
+
+            LOCAL_EXPECT((matches(bufvw, sv) == Matches{12, 8 ,4, 0}));
+            LOCAL_EXPECT((matches(bufvw, sv.substr(1)) == Matches{13, 9, 5, 1}));
+            LOCAL_EXPECT((matches(bufvw, sv.substr(2)) == Matches{14, 10, 6, 2}));
+            LOCAL_EXPECT((matches(bufvw, sv.substr(3)) == Matches{15, 11, 7, 3}));
+            LOCAL_EXPECT((matches(sv, bufvw) == Matches{}));
+            LOCAL_EXPECT((matches(sv, {}) == Matches{4, 3, 2, 1, 0})); // !!!
+
+            bufvw.remove_prefix(1);
+            LOCAL_EXPECT((matches(bufvw, sv) == Matches{11,7,3}));
+        }
+
+        // contains
+        if constexpr (!skip_contains) {
+            SV const sv{fixture.sz1234};
+
+            CharT buf[fixture.len*4] = {};
+            SV bufvw{buf, std::size(buf)};
+
+            for (CharT* cur = buf; cur < std::end(buf); cur += fixture.len) {
+                sv.copy(cur, fixture.len);
+            }
+
+            LOCAL_EXPECT(bufvw.contains(sv));
+            LOCAL_EXPECT(not sv.contains(bufvw));
+            LOCAL_EXPECT(sv.contains(SV{})); // anything contains empty strings
+            LOCAL_EXPECT(SV{}.contains(SV{})); // empty strings contain empty strings
         }
     }
 
