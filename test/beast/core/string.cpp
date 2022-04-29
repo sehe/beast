@@ -344,6 +344,49 @@ private:
             BEAST_THROWS(sv.substr(5), std::out_of_range);
             BEAST_THROWS(sv.substr(5, 0), std::out_of_range);
         }
+        // compare
+        {
+            SV const sv{fixture.sz1234};
+
+            CharT buf[fixture.len*4] = {};
+            SV bufvw{buf, std::size(buf)};
+
+            for (CharT* cur = buf; cur < std::end(buf); cur += fixture.len) {
+                sv.copy(cur, fixture.len);
+            }
+
+            LOCAL_EXPECT(sv.compare(bufvw) < 0);
+            LOCAL_EXPECT(sv.compare(bufvw.data()) < 0); // CharT const* rhs
+            LOCAL_EXPECT(bufvw.compare(sv) > 0);
+            LOCAL_EXPECT(bufvw.substr(0, sv.length()).compare(sv) == 0);
+            LOCAL_EXPECT(bufvw.substr(0, sv.length()-1).compare(sv) < 0);
+
+            for (size_t i = 0; i < std::size(buf); ++i) {
+                for (auto n : {2,4,8,16}) {
+                    LOCAL_EXPECT(bufvw.compare(i, n, sv) ==
+                                 bufvw.substr(i, n).compare(sv));
+                    LOCAL_EXPECT(bufvw.compare(i, n, sv.data()) ==
+                                 bufvw.substr(i, n).compare(sv));
+                    if (i < sv.length()) {
+                        LOCAL_EXPECT(
+                            bufvw.compare(i, n, sv, i, n) ==
+                            bufvw.substr(i, n).compare(sv.substr(i, n)));
+                        LOCAL_EXPECT(
+                            bufvw.compare(i, n, sv.data(), i, n) ==
+                            bufvw.substr(i, n).compare(sv.substr(i, n)));
+                    }
+                }
+            }
+
+            if constexpr (is_instance_v<SV, boost::basic_string_view>) {
+                // OBSERVABLE:
+                // overloads on Boost Utility's boost::basic_string_view are
+                // supposed to propagate std::out_of_range from substr, but are
+                // mistakenly marked noexcept. Oops. That crashes.
+            } else {
+                BEAST_THROWS(sv.compare(5, 0, bufvw), std::out_of_range);
+            }
+        }
 #if __cpp_lib_starts_ends_with >= 201711
 #endif
 #if __cpp_lib_string_contains >= 202011
