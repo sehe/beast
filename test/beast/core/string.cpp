@@ -16,7 +16,7 @@
 
 #include <ostream>
 #include <istream>
-#include <iostream> // TODO FIXME remove
+#include <iostream> // TODO REMOVE
 #if __has_include(<version>)
     #include <version> // for feature test macros to be reliable
     #ifdef __cpp_lib_string_view
@@ -61,31 +61,31 @@ static inline constexpr bool is_instance_v = is_instance_impl<std::decay_t<T>, U
 
 template <typename CharT> struct Fixture {
     static constexpr CharT const empty[] = "";
-    static constexpr CharT const four[] = "1234";
-    static constexpr size_t len = std::size(four) - 1; // not including NUL
+    static constexpr CharT const sz1234[] = "1234";
+    static constexpr size_t len = std::size(sz1234) - 1; // not including NUL
 };
 
 template <> struct Fixture<wchar_t> {
     static constexpr wchar_t const empty[] = L"";
-    static constexpr wchar_t const four[] = L"1234";
-    static constexpr size_t len = std::size(four) - 1; // not including NUL
+    static constexpr wchar_t const sz1234[] = L"1234";
+    static constexpr size_t len = std::size(sz1234) - 1; // not including NUL
 };
 
 template <> struct Fixture<char16_t> {
     static constexpr char16_t const empty[] = u"";
-    static constexpr char16_t const four[] = u"1234";
-    static constexpr size_t len = std::size(four) - 1; // not including NUL
+    static constexpr char16_t const sz1234[] = u"1234";
+    static constexpr size_t len = std::size(sz1234) - 1; // not including NUL
 };
 
 template <> struct Fixture<char32_t> {
     static constexpr char32_t const empty[] = U"";
-    static constexpr char32_t const four[] = U"1234";
-    static constexpr size_t len = std::size(four) - 1; // not including NUL
+    static constexpr char32_t const sz1234[] = U"1234";
+    static constexpr size_t len = std::size(sz1234) - 1; // not including NUL
 };
 
 template <typename SV, typename CharT> struct CheckInstance {
     static constexpr Fixture<CharT> fixture{};
-    static_assert(fixture.len > 1);
+    static_assert(fixture.len == 4);
 
     using traits_type            = typename SV::traits_type;
     using iterator               = typename SV::iterator;
@@ -107,6 +107,7 @@ template <typename SV, typename CharT> struct CheckInstance {
     // static_assert(std::is_same_v<CharT&, reference>); // OBSERVABLE
     static_assert(std::is_same_v<CharT const&, const_reference>);
 
+    static_assert(not std::is_aggregate_v<SV>);
     static_assert(not std::is_trivial_v<SV>);
     static_assert(not std::is_trivially_constructible_v<SV>);
     static_assert(not std::is_trivially_default_constructible_v<SV>);
@@ -168,13 +169,13 @@ private:
     void check_element_access() {
         {
             // NOTE (sehe) assuming sane implementations match non-const behaviour
-            SV const instance{fixture.four};
+            SV const instance{fixture.sz1234};
 
             for (size_t i = 0; i < instance.length(); ++i)
-                LOCAL_EXPECT(instance[i] == fixture.four[i]);
+                LOCAL_EXPECT(instance[i] == fixture.sz1234[i]);
 
             for (size_t i = 0; i < instance.length(); ++i)
-                LOCAL_EXPECT(instance.at(i) == fixture.four[i]);
+                LOCAL_EXPECT(instance.at(i) == fixture.sz1234[i]);
 
             LOCAL_EXPECT(instance.front() == instance[0]);
             LOCAL_EXPECT(std::addressof(instance.front()) == std::addressof(instance[0]));
@@ -185,13 +186,13 @@ private:
         }
 
         { 
-            SV const instance{fixture.four, fixture.len - 1};
+            SV const instance{fixture.sz1234, fixture.len - 1};
 
 #ifndef NDEBUG
             // skipped because implementations may assert
 #else
             instance[instance.length()]; // doesn't throw, also no UB due
-                                         // underlying fixture::four
+                                         // underlying fixture::sz1234
 #endif
 
             BEAST_THROWS(instance.at(instance.length()), std::out_of_range);
@@ -199,12 +200,19 @@ private:
     }
 
     void check_capacity() {
+        // length(), size(), empty(): see
+        // check_non_empty_instances/check_empty_instances
         check_capacity_max_size(); // this is its own saga...
     }
 
     void check_capacity_max_size() {
         static_assert(
             std::is_same_v<decltype(std::declval<SV>().max_size()), size_t>);
+
+        // ¯\_(ツ)_/¯ either `max_size()` returns exactly `length()` OR is some
+        // implementation-defined Very Big Value
+        LOCAL_EXPECT(SV{fixture.sz1234}.max_size() == fixture.len ||
+                     SV{}.max_size() >= 0x0fff'ffff'ffff'fff0ULL);
 
         // Subsequent static_assert made into LOCAL_EXPECT for easy debugging
 
@@ -234,9 +242,108 @@ private:
     }
 
     void check_modifiers() { // TODO SEHE
+        // remove_prefix
+        {
+            auto removed = [](size_t n) {
+                SV sv{fixture.sz1234, fixture.len};
+                sv.remove_prefix(n);
+                return sv;
+            };
+            //// OBSERVABLE only boost::utility::basic_string_view allows this, others assert
+            //UB: LOCAL_EXPECT(removed(-1) == fixture.empty);
+            LOCAL_EXPECT(removed(0) == fixture.sz1234 + 0);
+            LOCAL_EXPECT(removed(1) == fixture.sz1234 + 1);
+            LOCAL_EXPECT(removed(2) == fixture.sz1234 + 2);
+            LOCAL_EXPECT(removed(3) == fixture.sz1234 + 3);
+        }
+        // remove_suffix
+        {
+            auto removed = [](size_t n) {
+                SV sv{fixture.sz1234, fixture.len};
+                sv.remove_suffix(n);
+                return sv;
+            };
+            //// OBSERVABLE only boost::utility::basic_string_view allows this, others
+            //assert (GNU libstdc++ doesn't, even though remove_prefix does...)
+            //UB: LOCAL_EXPECT(removed(-1) == fixture.empty);
+            LOCAL_EXPECT((removed(0) == SV{fixture.sz1234, 4}));
+            LOCAL_EXPECT((removed(1) == SV{fixture.sz1234, 3}));
+            LOCAL_EXPECT((removed(2) == SV{fixture.sz1234, 2}));
+            LOCAL_EXPECT((removed(3) == SV{fixture.sz1234, 1}));
+        }
+        // swap
+        {
+            SV a{fixture.sz1234}, b{fixture.empty};
+            {
+                // ADL swap
+                using std::swap;
+                swap(a, b);
+            }
+
+            LOCAL_EXPECT(a == fixture.empty);
+            LOCAL_EXPECT(b == fixture.sz1234);
+
+            a.swap(b);
+
+            LOCAL_EXPECT(a == fixture.sz1234);
+            LOCAL_EXPECT(b == fixture.empty);
+        }
     }
 
     void check_operations() { // TODO SEHE
+        // copy
+        {
+            CharT buf[fixture.len] = {};
+            SV bufvw{buf, std::size(buf)};
+
+            SV const sv{fixture.sz1234};
+
+            std::fill(std::begin(buf), std::end(buf), CharT{});
+            sv.copy(buf, fixture.len, 0);
+            LOCAL_EXPECT(sv == bufvw);
+
+            std::fill(std::begin(buf), std::end(buf), CharT{});
+            sv.copy(buf, fixture.len); // pos = 0 default argument
+            LOCAL_EXPECT(sv == bufvw);
+
+            sv.copy(buf+2, fixture.len-2);
+            auto front = bufvw.substr(0, 2), back = bufvw.substr(2);
+            LOCAL_EXPECT(front == back);
+
+            LOCAL_EXPECT(bufvw[3] == sv[1]); // pre-condition
+
+            sv.copy(buf + 1, fixture.len, 2); // count gets clamped to 2
+            LOCAL_EXPECT(bufvw[0] == sv[0]);
+            LOCAL_EXPECT(bufvw[1] == sv[2]);
+            LOCAL_EXPECT(bufvw[2] == sv[3]);
+            LOCAL_EXPECT(bufvw[3] == sv[1]); // not clobbered by last copy
+
+            std::fill(std::begin(buf), std::end(buf), CharT{});
+            sv.copy(buf, 100, fixture.len); // starting at the end is noop
+
+            LOCAL_EXPECT(fixture.len == std::count(std::begin(buf), std::end(buf), CharT{}));
+            BEAST_THROWS(sv.copy(buf, 0, fixture.len+1), std::out_of_range);
+        }
+        // substr
+        {
+            SV const sv{fixture.sz1234};
+
+            // OBSERVABLE: utility::basic_string_view doesn't default pos=0
+            if constexpr (not is_instance_v<SV, boost::basic_string_view>) {
+                LOCAL_EXPECT(sv == sv.substr());
+            }
+
+            LOCAL_EXPECT(sv.substr(1).length() == sv.length() - 1);
+            LOCAL_EXPECT(sv.substr(2).length() == sv.length() - 2);
+            LOCAL_EXPECT(sv.substr(3).length() == sv.length() - 3);
+            LOCAL_EXPECT(sv.substr(4).length() == sv.length() - 4);
+            LOCAL_EXPECT(sv.substr(4).empty());
+            LOCAL_EXPECT(sv.substr(1, 2).length() == 2);
+            LOCAL_EXPECT(sv.substr(1, 15).length() == 3); // count clamped
+
+            BEAST_THROWS(sv.substr(5), std::out_of_range);
+            BEAST_THROWS(sv.substr(5, 0), std::out_of_range);
+        }
 #if __cpp_lib_starts_ends_with >= 201711
 #endif
 #if __cpp_lib_string_contains >= 202011
@@ -258,8 +365,8 @@ private:
         // Function call arguments and implicit uniform construction
         LOCAL_EXPECT(acceptSV(SV{}));
         LOCAL_EXPECT(acceptSV({}));
-        LOCAL_EXPECT(acceptSV({fixture.four}));
-        LOCAL_EXPECT(acceptSV({fixture.four, fixture.len}));
+        LOCAL_EXPECT(acceptSV({fixture.sz1234}));
+        LOCAL_EXPECT(acceptSV({fixture.sz1234, fixture.len}));
     }
 
     void check_constructors() {
@@ -269,7 +376,7 @@ private:
         // https://stackoverflow.com/a/53638114/85371
         [[maybe_unused]] [[clang::
                                require_constant_initialization]] static constexpr SV
-            s_instance{fixture.four, fixture.len};
+            s_instance{fixture.sz1234, fixture.len};
 #pragma GCC diagnostic pop
         //#endif
 
@@ -280,7 +387,7 @@ private:
     }
 
     void check_copy_and_assign() {
-        SV const instance{fixture.four};
+        SV const instance{fixture.sz1234};
 
         SV const copy { instance }; // copy construct
         LOCAL_EXPECT(copy == instance);
@@ -307,7 +414,7 @@ private:
             LOCAL_EXPECT(mut_copy.length() == 0);
             LOCAL_EXPECT(mut_copy.empty());
 
-            mut_copy = {fixture.four, fixture.len};
+            mut_copy = {fixture.sz1234, fixture.len};
             LOCAL_EXPECT(copy == instance);
             LOCAL_EXPECT(copy.data() == instance.data());
             LOCAL_EXPECT(copy.length() == instance.length());
@@ -318,16 +425,16 @@ private:
     void check_non_empty_instances() {
         // Non-empty instance construction
         std::vector<SV> svs{
-                 SV{fixture.four},
-                 SV{fixture.four, fixture.len},
-                 SV{fixture.four, static_cast<unsigned>(fixture.len)}, // widening ok
+                 SV{fixture.sz1234},
+                 SV{fixture.sz1234, fixture.len},
+                 SV{fixture.sz1234, static_cast<unsigned>(fixture.len)}, // widening ok
              };
 
         // construct from iterator pair
 #if __cpp_lib_string_view >= 201811 // TODO FIXME wrong feature test - but can't
                                     // find better for the C++23 feature
         // this will be OBSERVABLE if in c++23 mode, no doubt
-        svs.emplace_back(fixture.four, fixture.four + fixture.len);
+        svs.emplace_back(fixture.sz1234, fixture.sz1234 + fixture.len);
 #endif
 
         // TODO c++23 range constructor?
@@ -335,18 +442,18 @@ private:
         for (SV const& sv : svs) {
             LOCAL_EXPECT(sv.length() == fixture.len);
             LOCAL_EXPECT(sv.size() == fixture.len);
-            LOCAL_EXPECT(sv.data() == +fixture.four);
-            LOCAL_EXPECT(sv.begin() == +fixture.four);
-            LOCAL_EXPECT(sv.cbegin() == +fixture.four);
-            LOCAL_EXPECT(sv.end() == fixture.four + fixture.len);
-            LOCAL_EXPECT(sv.cend() == fixture.four + fixture.len);
+            LOCAL_EXPECT(sv.data() == +fixture.sz1234);
+            LOCAL_EXPECT(sv.begin() == +fixture.sz1234);
+            LOCAL_EXPECT(sv.cbegin() == +fixture.sz1234);
+            LOCAL_EXPECT(sv.end() == fixture.sz1234 + fixture.len);
+            LOCAL_EXPECT(sv.cend() == fixture.sz1234 + fixture.len);
             LOCAL_EXPECT(not sv.empty());
 
             // reverse
             LOCAL_EXPECT(sv.crbegin() == sv.rbegin());
             LOCAL_EXPECT(sv.crend() == sv.rend());
 
-            LOCAL_EXPECT(*sv.rbegin() == fixture.four[fixture.len - 1]);
+            LOCAL_EXPECT(*sv.rbegin() == fixture.sz1234[fixture.len - 1]);
             LOCAL_EXPECT(sv.rend().base() == sv.begin());
             LOCAL_EXPECT(std::distance(sv.begin(), sv.end()) ==
                          static_cast<difference_type>(sv.size()));
@@ -360,10 +467,10 @@ private:
                 using std::cend;
                 using std::size;
                 using std::empty;
-                LOCAL_EXPECT(begin(sv) == +fixture.four);
-                LOCAL_EXPECT(end(sv) == fixture.four + fixture.len);
-                LOCAL_EXPECT(cbegin(sv) == +fixture.four);
-                LOCAL_EXPECT(cend(sv) == fixture.four + fixture.len);
+                LOCAL_EXPECT(begin(sv) == +fixture.sz1234);
+                LOCAL_EXPECT(end(sv) == fixture.sz1234 + fixture.len);
+                LOCAL_EXPECT(cbegin(sv) == +fixture.sz1234);
+                LOCAL_EXPECT(cend(sv) == fixture.sz1234 + fixture.len);
                 LOCAL_EXPECT(size(sv) == fixture.len);
                 LOCAL_EXPECT(not empty(sv));
             }
@@ -387,7 +494,7 @@ private:
     void check_empty_instances() {
         for (SV const& sv : {
                  SV{fixture.empty},
-                 SV{fixture.four, 0},
+                 SV{fixture.sz1234, 0},
                  SV{},
              }) {
             LOCAL_EXPECT(sv.length() == 0);
@@ -423,8 +530,8 @@ private: // utils
     template <typename Hash> static void exercise_hash(Hash const& hash) {
         size_t h1 = hash(SV{});
         size_t h2 = hash(SV{fixture.empty});
-        size_t h3 = hash(SV{fixture.four});
-        size_t h4 = hash(SV{fixture.four,fixture.len});
+        size_t h3 = hash(SV{fixture.sz1234});
+        size_t h4 = hash(SV{fixture.sz1234,fixture.len});
         LOCAL_EXPECT(h1 == h2);
         LOCAL_EXPECT(h1 != h3);
         LOCAL_EXPECT(h2 != h4);
