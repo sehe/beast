@@ -93,6 +93,7 @@ template <typename SV, typename CharT> struct CheckInstance {
     static_assert(fixture.len == 4);
 
     using traits_type            = typename SV::traits_type;
+    static_assert(std::is_same_v<std::char_traits<CharT>, traits_type>);
     using iterator               = typename SV::iterator;
     using const_iterator         = typename SV::const_iterator;
     using reverse_iterator       = typename SV::reverse_iterator;
@@ -167,7 +168,6 @@ template <typename SV, typename CharT> struct CheckInstance {
 
         // interface usage
         check_argument_passing();
-        
     };
 
 private:
@@ -319,12 +319,12 @@ private:
         );
 
     void check_operations() { // TODO SEHE
+        SV const sv{fixture.sz1234};
+
         // copy
         {
             CharT buf[fixture.len] = {};
             SV bufvw{buf, std::size(buf)};
-
-            SV const sv{fixture.sz1234};
 
             std::fill(std::begin(buf), std::end(buf), CharT{});
             sv.copy(buf, fixture.len, 0);
@@ -352,10 +352,9 @@ private:
             LOCAL_EXPECT(fixture.len == std::count(std::begin(buf), std::end(buf), CharT{}));
             BEAST_THROWS(sv.copy(buf, 0, fixture.len+1), std::out_of_range);
         }
+
         // substr
         {
-            SV const sv{fixture.sz1234};
-
             // OBSERVABLE: utility::basic_string_view doesn't default pos=0
             if constexpr (not is_instance_v<SV, boost::basic_string_view>) {
                 LOCAL_EXPECT(sv == sv.substr());
@@ -372,17 +371,18 @@ private:
             BEAST_THROWS(sv.substr(5), std::out_of_range);
             BEAST_THROWS(sv.substr(5, 0), std::out_of_range);
         }
+
+        auto const buf = [sv] {
+            std::basic_string<CharT, traits_type> buf;
+            for (int n = 4; n--;)
+                buf.append(sv.data(), sv.size());
+            return buf;
+        }();
+
+        SV const bufvw{buf};
+
         // compare
         {
-            SV const sv{fixture.sz1234};
-
-            CharT buf[fixture.len*4] = {};
-            SV bufvw{buf, std::size(buf)};
-
-            for (CharT* cur = buf; cur < std::end(buf); cur += fixture.len) {
-                sv.copy(cur, fixture.len);
-            }
-
             LOCAL_EXPECT(sv.compare(bufvw) < 0);
             LOCAL_EXPECT(sv.compare(bufvw.data()) < 0); // CharT const* rhs
             LOCAL_EXPECT(bufvw.compare(sv) > 0);
@@ -418,15 +418,6 @@ private:
 
         // starts_with
         if constexpr (!skip_starts_with_ends_with) {
-            SV const sv{fixture.sz1234};
-
-            CharT buf[fixture.len*4] = {};
-            SV bufvw{buf, std::size(buf)};
-
-            for (CharT* cur = buf; cur < std::end(buf); cur += fixture.len) {
-                sv.copy(cur, fixture.len);
-            }
-
             LOCAL_EXPECT(bufvw.starts_with(sv));
             LOCAL_EXPECT(bufvw.starts_with(sv.data())); // assume NUL-termination
             LOCAL_EXPECT(not sv.starts_with(bufvw)); // sv shorter
@@ -446,15 +437,6 @@ private:
 
         // ends_with
         if constexpr (!skip_starts_with_ends_with) {
-            SV const sv{fixture.sz1234};
-
-            CharT buf[fixture.len*4] = {};
-            SV bufvw{buf, std::size(buf)};
-
-            for (CharT* cur = buf; cur < std::end(buf); cur += fixture.len) {
-                sv.copy(cur, fixture.len);
-            }
-
             LOCAL_EXPECT(bufvw.ends_with(sv));
             LOCAL_EXPECT(bufvw.ends_with(sv.data())); // assume NUL-termination
             LOCAL_EXPECT(not sv.ends_with(bufvw));    // sv shorter
@@ -473,15 +455,6 @@ private:
 
         // find
         {
-            SV const sv{fixture.sz1234};
-
-            CharT buf[fixture.len*4] = {};
-            SV bufvw{buf, std::size(buf)};
-
-            for (CharT* cur = buf; cur < std::end(buf); cur += fixture.len) {
-                sv.copy(cur, fixture.len);
-            }
-
             LOCAL_EXPECT(bufvw.find(sv) == 0);
             LOCAL_EXPECT(sv.find(bufvw) == SV::npos); // needle larger than haystack
             LOCAL_EXPECT(bufvw.find(sv.data()) == 0); // assumes NUL termination
@@ -516,21 +489,13 @@ private:
             LOCAL_EXPECT((matches(sv, bufvw) == Matches{}));
             LOCAL_EXPECT((matches(sv, {}) == Matches{0, 1, 2, 3}));
 
-            bufvw.remove_suffix(1);
-            LOCAL_EXPECT((matches(bufvw, sv) == Matches{0, 4, 8/*, now partial match: 12*/}));
+            SV mut_bufvw = bufvw;
+            mut_bufvw.remove_suffix(1);
+            LOCAL_EXPECT((matches(mut_bufvw, sv) == Matches{0, 4, 8/*, now partial match: 12*/}));
         }
 
         // rfind
         {
-            SV const sv{fixture.sz1234};
-
-            CharT buf[fixture.len*4] = {};
-            SV bufvw{buf, std::size(buf)};
-
-            for (CharT* cur = buf; cur < std::end(buf); cur += fixture.len) {
-                sv.copy(cur, fixture.len);
-            }
-
             LOCAL_EXPECT(bufvw.rfind(sv) == 12);
             LOCAL_EXPECT(bufvw.rfind(sv, 12) == 12);
             LOCAL_EXPECT(sv.rfind(bufvw) == SV::npos); // needle larger than haystack
@@ -567,31 +532,99 @@ private:
             LOCAL_EXPECT((matches(sv, bufvw) == Matches{}));
             LOCAL_EXPECT((matches(sv, {}) == Matches{4, 3, 2, 1, 0})); // !!!
 
-            bufvw.remove_prefix(1);
-            LOCAL_EXPECT((matches(bufvw, sv) == Matches{11, 7, 3}));
+            SV mut_bufvw = bufvw;
+            mut_bufvw.remove_prefix(1);
+            LOCAL_EXPECT((matches(mut_bufvw, sv) == Matches{11, 7, 3}));
         }
 
         // contains
         if constexpr (!skip_contains) {
-            SV const sv{fixture.sz1234};
-
-            CharT buf[fixture.len*4] = {};
-            SV bufvw{buf, std::size(buf)};
-
-            for (CharT* cur = buf; cur < std::end(buf); cur += fixture.len) {
-                sv.copy(cur, fixture.len);
-            }
-
             LOCAL_EXPECT(bufvw.contains(sv));
             LOCAL_EXPECT(not sv.contains(bufvw));
             LOCAL_EXPECT(sv.contains(SV{})); // anything contains empty strings
             LOCAL_EXPECT(SV{}.contains(SV{})); // empty strings contain empty strings
         }
 
-        // TODO find_first_of
-        // TODO find_first_not_of
-        // TODO find_last_of
-        // TODO find_last_not_of
+        // find_first_of
+        // find_first_not_of
+        // find_last_of
+        // find_last_not_of
+        {
+            SV const sv12 = sv.substr(0, 2);
+            SV const sv34 = sv.substr(2, 2);
+
+            // negative results
+            LOCAL_EXPECT(bufvw.find_first_of(fixture.dquote)   == SV::npos);
+            LOCAL_EXPECT(bufvw.find_first_of(fixture.empty)    == SV::npos);
+            LOCAL_EXPECT(bufvw.find_last_of(fixture.dquote)    == SV::npos);
+            LOCAL_EXPECT(bufvw.find_last_of(fixture.empty)     == SV::npos);
+            LOCAL_EXPECT(bufvw.find_first_not_of(sv)           == SV::npos);
+            LOCAL_EXPECT(bufvw.find_first_not_of(sv)           == SV::npos);
+            LOCAL_EXPECT(bufvw.find_last_not_of(sv)            == SV::npos);
+            LOCAL_EXPECT(bufvw.find_last_not_of(sv)            == SV::npos);
+            LOCAL_EXPECT(bufvw.find_first_of(sv, bufvw.size()) == SV::npos); // pte is ok
+            LOCAL_EXPECT(bufvw.find_last_of(sv, 0)             == 0); // pos is inclusive
+
+            // constexpr size_type xxx( basic_string_view v, size_type pos = 0 ) const noexcept; (1)	(since C++17)
+            LOCAL_EXPECT(bufvw.find_first_of(sv12)    == 0);
+            LOCAL_EXPECT(bufvw.find_first_of(sv12, 1) == 1);
+            LOCAL_EXPECT(bufvw.find_first_of(sv12, 2) == 4);
+            LOCAL_EXPECT(bufvw.find_last_of(sv12)     == 13);
+            LOCAL_EXPECT(bufvw.find_last_of(sv12, 10) == 9);
+            LOCAL_EXPECT(bufvw.find_last_of(sv12, 9)  == 9); // pos is inclusive
+
+            LOCAL_EXPECT(bufvw.find_first_not_of(sv34)    == 0);
+            LOCAL_EXPECT(bufvw.find_first_not_of(sv34, 1) == 1);
+            LOCAL_EXPECT(bufvw.find_first_not_of(sv34, 2) == 4);
+            LOCAL_EXPECT(bufvw.find_last_not_of(sv34)     == 13);
+            LOCAL_EXPECT(bufvw.find_last_not_of(sv34, 10) == 9);
+            LOCAL_EXPECT(bufvw.find_last_not_of(sv34, 9)  == 9); // pos is inclusive
+
+            // constexpr size_type xxx(CharT c, size_type pos = 0) const noexcept; (2)	(since C++17)
+            LOCAL_EXPECT(bufvw.find_first_of(sv12[1]) == 1);
+            LOCAL_EXPECT(bufvw.find_first_of(sv12[1], 1) == 1);
+            LOCAL_EXPECT(bufvw.find_first_of(sv12[1], 2) == 5);
+            LOCAL_EXPECT(bufvw.find_last_of(sv12[1]) == 13);
+            LOCAL_EXPECT(bufvw.find_last_of(sv12[1], 10) == 9);
+            LOCAL_EXPECT(bufvw.find_last_of(sv12[1], 9) == 9);
+            LOCAL_EXPECT(bufvw.find_first_not_of(sv34[1]) == 0);
+            LOCAL_EXPECT(bufvw.find_first_not_of(sv34[1], 1) == 1);
+            LOCAL_EXPECT(bufvw.find_first_not_of(sv34[1], 2) == 2);
+            LOCAL_EXPECT(bufvw.find_last_not_of(sv34[1]) == 14);
+            LOCAL_EXPECT(bufvw.find_last_not_of(sv34[1], 10) == 10);
+            LOCAL_EXPECT(bufvw.find_last_not_of(sv34[1], 9) == 9);
+
+            // constexpr size_type xxx(const CharT* s, size_type pos, size_type count) const; (3)	(since C++17)
+            LOCAL_EXPECT(bufvw.find_first_of(sv.data(), 0, 2) == 0);
+            LOCAL_EXPECT(bufvw.find_first_of(sv.data(), 1, 2) == 1);
+            LOCAL_EXPECT(bufvw.find_first_of(sv.data(), 2, 2) == 4);
+            LOCAL_EXPECT(bufvw.find_last_of(sv.data(), SV::npos, 2) == 13);
+            LOCAL_EXPECT(bufvw.find_last_of(sv.data(), 10, 2) == 9);
+            LOCAL_EXPECT(bufvw.find_last_of(sv.data(), 9, 2) == 9);
+            LOCAL_EXPECT(bufvw.find_first_not_of(sv.data()+2, 0, 2) == 0);
+            LOCAL_EXPECT(bufvw.find_first_not_of(sv.data()+2, 1, 2) == 1);
+            LOCAL_EXPECT(bufvw.find_first_not_of(sv.data()+2, 2, 2) == 4);
+            LOCAL_EXPECT(bufvw.find_last_not_of(sv.data()+2, SV::npos, 2) == 13);
+            LOCAL_EXPECT(bufvw.find_last_not_of(sv.data()+2, 10, 2) == 9);
+            LOCAL_EXPECT(bufvw.find_last_not_of(sv.data()+2, 9, 2) == 9);
+
+            // constexpr size_type xxx(const CharT* s, size_type pos = 0) const; (4)	(since C++17)
+            std::basic_string<CharT, traits_type> s12(sv12);
+            std::basic_string<CharT, traits_type> s34(sv34);
+
+            LOCAL_EXPECT(bufvw.find_first_of(s12.c_str()) == 0);
+            LOCAL_EXPECT(bufvw.find_first_of(s12.c_str(), 1) == 1);
+            LOCAL_EXPECT(bufvw.find_first_of(s12.c_str(), 2) == 4);
+            LOCAL_EXPECT(bufvw.find_last_of(s12.c_str()) == 13);
+            LOCAL_EXPECT(bufvw.find_last_of(s12.c_str(), 10) == 9);
+            LOCAL_EXPECT(bufvw.find_last_of(s12.c_str(), 9) == 9);
+            LOCAL_EXPECT(bufvw.find_first_not_of(s34.c_str()) == 0);
+            LOCAL_EXPECT(bufvw.find_first_not_of(s34.c_str(), 1) == 1);
+            LOCAL_EXPECT(bufvw.find_first_not_of(s34.c_str(), 2) == 4);
+            LOCAL_EXPECT(bufvw.find_last_not_of(s34.c_str()) == 13);
+            LOCAL_EXPECT(bufvw.find_last_not_of(s34.c_str(), 10) == 9);
+            LOCAL_EXPECT(bufvw.find_last_not_of(s34.c_str(), 9) == 9);
+        }
     }
 
     void check_relational() {
@@ -866,15 +899,30 @@ private:
     }
 
     void check_argument_passing() {
+        SV const sv{fixture.sz1234};
         // Function call arguments and implicit uniform construction
-        LOCAL_EXPECT(acceptSV(SV{}));
-        LOCAL_EXPECT(acceptSV({}));
-        LOCAL_EXPECT(acceptSV({fixture.sz1234}));
-        LOCAL_EXPECT(acceptSV({fixture.sz1234, fixture.len}));
+        LOCAL_EXPECT(not acceptsSV(1)); // sanity check
 
-        // TODO Implicit conversions through conversion operators (like
-        // basic_string<>::operator basic_string_view<>)
-        //
+        LOCAL_EXPECT(acceptsSV(sv));
+        LOCAL_EXPECT(acceptsSV(SV{}));
+        LOCAL_EXPECT(acceptsSV({}));
+        LOCAL_EXPECT(acceptsSV({fixture.sz1234}));
+        LOCAL_EXPECT(acceptsSV({fixture.sz1234, fixture.len}));
+
+        using Str = std::basic_string<CharT, traits_type>;
+        Str s1(SV{fixture.sz1234});
+
+        LOCAL_EXPECT(acceptsSV(s1));
+        LOCAL_EXPECT(acceptsSV(Str{}));
+
+        SV v = s1;
+        LOCAL_EXPECT(v == s1);
+        LOCAL_EXPECT(s1 == v);
+
+        v = Str{}; // UB
+        s1 = Str{v};
+
+
         // Boost Utility has basic_string_view<>::to_string(). OBSERVABLE
     }
 
@@ -1028,12 +1076,11 @@ private:
     }
 
 private: // utils
-    static bool acceptSV(SV sv) {
+    static constexpr bool acceptsSV(SV) {
         return true;
     }
-
-    template <typename T> static bool acceptSV(T const& sv, ...) {
-        return false;
+    template <typename T> static constexpr bool acceptsSV(T&& args) {
+        return std::is_invocable_v<void(SV), T>;
     }
 
     template <typename Hash> static void exercise_hash(Hash const& hash) {
