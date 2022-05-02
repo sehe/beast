@@ -106,12 +106,12 @@ template <typename SV, typename CharT> struct CheckInstance {
     using size_type              = typename SV::size_type;
     using difference_type        = typename SV::difference_type;
 
-    static_assert(std::is_same_v<CharT const*, const_pointer>);
-    static_assert(std::is_same_v<CharT const*, const_iterator>);
-    static_assert(std::is_same_v<CharT, value_type>);
-    // static_assert(std::is_same_v<CharT const*, pointer>); // OBSERVABLE
-    // static_assert(std::is_same_v<CharT&, reference>); // OBSERVABLE
     static_assert(std::is_same_v<CharT const&, const_reference>);
+    static_assert(std::is_same_v<CharT const*, const_iterator>);
+    static_assert(std::is_same_v<CharT const*, const_pointer>);
+    static_assert(std::is_same_v<CharT&, reference>);
+    static_assert(std::is_same_v<CharT*, pointer>); 
+    static_assert(std::is_same_v<CharT, value_type>);
 
     static_assert(not std::is_aggregate_v<SV>);
     static_assert(not std::is_trivial_v<SV>);
@@ -941,6 +941,7 @@ private:
         LOCAL_EXPECT(SV{}.data() == nullptr);
 
         // rest separated into check_non_empty_instances/check_empty_instances
+
     }
 
     void check_copy_and_assign() {
@@ -1134,8 +1135,33 @@ struct CheckTemplate {
 } // namespace test_detail
 
 class string_test : public unit_test::suite {
-public:
-    void run() override {
+    template <typename CharT> struct funky_traits : std::char_traits<CharT> {};
+    template <typename T> struct funky_allocator : std::allocator<T> {};
+
+    // special cases
+    template <template <typename...> class StringViewTemplate>
+    static void check_nonstandard_allocator() {
+        using CharT = char; // no value in checking all
+
+        using AStr = std::basic_string<CharT, std::char_traits<CharT>,
+                                       funky_allocator<CharT>>;
+        using SV = StringViewTemplate<CharT>;
+
+        static_assert(std::is_constructible_v<SV, AStr>);
+    }
+
+    template <template <typename...> class StringViewTemplate>
+    static void check_nonstandard_traits() {
+        using CharT = char; // no value in checking all
+        using FunkyStr = std::basic_string<CharT, funky_traits<CharT>>;
+        using SV = StringViewTemplate<CharT>;
+        using FunkySV = StringViewTemplate<CharT, funky_traits<CharT>>;
+
+        static_assert(not std::is_constructible_v<SV, FunkyStr>);
+        static_assert(std::is_constructible_v<FunkySV, FunkyStr>);
+    }
+
+    static void check_generic_behaviours() {
         using namespace test_detail::string_views;
 
 #if BEAST_TEST_HAVE_STD_STRING_VIEW
@@ -1145,6 +1171,28 @@ public:
 #endif
         CheckTemplate<boost::basic_string_view>{}.run();
         CheckTemplate<boost::core::basic_string_view>{}.run();
+    }
+
+    static void check_interop_edge_cases() {
+#if BEAST_TEST_HAVE_STD_STRING_VIEW
+        check_nonstandard_allocator<std::basic_string_view>();
+        check_nonstandard_traits<std::basic_string_view>();
+#elif defined(__cpp_lib_experimental_string_view)
+        check_nonstandard_allocator<std::experimental::basic_string_view>();
+        check_nonstandard_traits<std::experimental::basic_string_view>();
+#endif
+        check_nonstandard_allocator<boost::basic_string_view>();
+        check_nonstandard_traits<boost::basic_string_view>();
+
+        check_nonstandard_allocator<boost::core::basic_string_view>();
+        // OBSERVABLE Boost Core's doesn't support any char_traits at all
+        // check_nonstandard_traits<boost::core::basic_string_view>();
+    }
+
+public:
+    void run() override {
+        check_generic_behaviours();
+        check_interop_edge_cases();
     }
 };
 
