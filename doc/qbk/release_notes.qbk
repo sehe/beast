@@ -11,6 +11,19 @@
 
 [/-----------------------------------------------------------------------------]
 
+[heading Boost 1.80]
+
+[*Miscellaneous]
+
+* [issue 2417] use boost::core::string_view
+  * This improves inter-conversion between string_view implementations. Some observable differences for users:
+    - core::string_view no longer supports the .to_string() or .clear() extensions from Utility
+    - code that relied on .max_size() returning .size(), needs to be fixed to .size() instead
+    - remove_suffix() and remove_prefix() were more lenient than the standard specs; be sure you don't rely on it clamping the argument to valid range
+    - BOOST_NO_CXX11_EXPLICIT_CONVERSION_OPERATORS no longer suppresses conversions to std::string
+    - core::string_view adds .contains() and various bugs fixed
+
+
 [heading Boost 1.79]
 
 [*Fixes]
